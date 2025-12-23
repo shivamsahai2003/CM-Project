@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
-// IsBotUA checks if the user agent indicates a bot
+// IsBotUA checks if the user agent is a bot or not
 func IsBotUA(ua string) bool {
 	return strings.Contains(strings.ToLower(ua), "bot")
 }
@@ -80,4 +82,34 @@ func GetScheme(r *http.Request) string {
 		scheme = strings.TrimSpace(strings.Split(xfp, ",")[0])
 	}
 	return scheme
+}
+
+// CountKeywordSlots counts the number of keyword-item divs in a template file
+func CountKeywordSlots(templatePath string) int {
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		return 0
+	}
+	// Count occurrences of class="keyword-item"
+	re := regexp.MustCompile(`class="keyword-item"`)
+	matches := re.FindAllString(string(content), -1)
+	return len(matches)
+}
+
+// CountAdSlots counts the number of ad slots in a SERP template file
+// by counting unique AdHref placeholders (e.g., {{.AdHref1}}, {{.AdHref2}}, etc.)
+func CountAdSlots(templatePath string) int {
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		return 0
+	}
+	// Count unique AdHref placeholders
+	re := regexp.MustCompile(`\{\{\.AdHref\d+\}\}`)
+	matches := re.FindAllString(string(content), -1)
+	// Use a map to count unique matches
+	unique := make(map[string]struct{})
+	for _, m := range matches {
+		unique[m] = struct{}{}
+	}
+	return len(unique)
 }

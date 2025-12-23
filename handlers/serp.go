@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"html"
 	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,11 +15,16 @@ import (
 	"adserving/db"
 	"adserving/models"
 	"adserving/services"
-	"adserving/templates"
 	"adserving/utils"
 )
 
 // SerpHandler handles SERP page requests
+func CountAdPlaceHolders(templateStr string) int {
+	re := regexp.MustCompile(`\{\{\.ad_desc_\d+\}\}`)
+	matches := re.FindAllString(templateStr, -1)
+	return len(matches)
+}
+
 type SerpHandler struct {
 	yahooService *services.YahooService
 }
@@ -49,9 +56,9 @@ func (h *SerpHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		PID:    r.URL.Query().Get("pid"),
 		MaxAds: r.URL.Query().Get("maxads"),
 	}
-
+	log.Printf("result of params: %+v", params)
 	// Log keyword click
-	clientID := utils.GetClientIP(r)
+	clientID := utils.GetClientIP(r) // todo recheck
 	pubID := utils.AtoiOrZero(params.LID)
 	kidInt := utils.AtoiOrZero(params.KID)
 
@@ -77,14 +84,25 @@ func (h *SerpHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Yahoo XML fetch/parse error: %v", err)
 	}
 
-	// Limit ads based on maxads param (passed from render.js)
-	maxAds := config.DefaultPublisherConfig.MaxAds // Default fallback
+	// Get publisher config by PID
+	pid := utils.AtoiOrZero(params.PID)
+	pubConfig := config.GetPublisherConfigByPID(pid)
+
+	// Get max ads from SERP template (template decides how many ads to show)
+	serpTemplatePath := "storage/html/" + pubConfig.SerpTemplate
+	maxAds := utils.CountAdSlots(serpTemplatePath)
+	if maxAds == 0 {
+		maxAds = 3 // fallback
+	}
+
+	// Override with maxads param if provided (from render.js)
 	if params.MaxAds != "" {
-		if n, err := strconv.Atoi(params.MaxAds); err == nil && n > 0 {
+		if n, err := strconv.Atoi(params.MaxAds); err == nil && n > 0 && n < maxAds {
 			maxAds = n
 		}
 	}
-	log.Printf("SERP: Domain=%s, MaxAds param=%s, limiting to %d ads", params.D, params.MaxAds, maxAds)
+	fmt.Println("ads for serp", ads)
+	log.Printf("SERP: PID=%d, Domain=%s, SerpTemplate=%s, MaxAds=%d", pid, params.D, pubConfig.SerpTemplate, maxAds)
 	if len(ads) > maxAds {
 		ads = ads[:maxAds]
 	}
@@ -124,25 +142,38 @@ func (h *SerpHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data := models.SerpPageData{
-		Title:  html.EscapeString(title),
-		Slot:   html.EscapeString(params.Slot),
-		CC:     html.EscapeString(params.CC),
-		D:      html.EscapeString(params.D),
-		RURL:   html.EscapeString(params.RURL),
-		PTitle: html.EscapeString(params.PTitle),
-		LID:    html.EscapeString(params.LID),
-		TSize:  html.EscapeString(params.TSize),
-		KwRf:   html.EscapeString(params.KwRf),
-		KID:    html.EscapeString(params.KID),
-		PID:    html.EscapeString(params.PID),
-		IsBot:  isBot,
-		HasAds: len(adsVM) > 0,
-		Ads:    adsVM,
+	dataMap := map[string]interface{}{
+		"Title":  html.EscapeString(title),
+		"Slot":   html.EscapeString(params.Slot),
+		"CC":     html.EscapeString(params.CC),
+		"D":      html.EscapeString(params.D),
+		"RURL":   html.EscapeString(params.RURL),
+		"PTitle": html.EscapeString(params.PTitle),
+		"LID":    html.EscapeString(params.LID),
+		"TSize":  html.EscapeString(params.TSize),
+		"KwRf":   html.EscapeString(params.KwRf),
+		"KID":    html.EscapeString(params.KID),
+		"PID":    html.EscapeString(params.PID),
+		"IsBot":  isBot,
+		"HasAds": len(adsVM) > 0,
+		"Ads":    adsVM, //added this
 	}
+	for index, ad := range adsVM {
+		n := strconv.Itoa(index + 1)
+		dataMap["AdTitle"+n] = ad.TitleHTML
+		dataMap["AdDesc"+n] = ad.DescHTML
+		dataMap["AdHref"+n] = ad.ClickHref
+	}
+	fmt.Printf("data for template: %v", dataMap)
 
-	t, _ := template.New("serp").Parse(templates.SerpTemplate)
-	if err := t.Execute(w, data); err != nil {
+	// Use template from publisher config
+	templatePath := "storage/html/" + pubConfig.SerpTemplate
+	t, err := template.ParseFiles(templatePath)
+	if err != nil {
+		log.Fatalf("template parse error: %v", err)
+	}
+	// execute template
+	if err := t.Execute(w, dataMap); err != nil {
 		log.Printf("template execute error: %v", err)
 	}
 }

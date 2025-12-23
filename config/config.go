@@ -18,7 +18,7 @@ func Load() *Config {
 
 	addr := os.Getenv("SERVER_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":8000"
 	}
 
 	apiBase := os.Getenv("KEYWORD_API_BASE")

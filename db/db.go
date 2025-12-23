@@ -42,6 +42,11 @@ func Init(dsn string) error {
 		return fmt.Errorf("failed to create tables: %w", err)
 	}
 
+	// Seed default publisher configs
+	if err := seedPublisherConfigs(); err != nil {
+		return fmt.Errorf("failed to seed publisher configs: %w", err)
+	}
+
 	return nil
 }
 
@@ -88,6 +93,16 @@ func createTables() error {
 			publisher_id INT PRIMARY KEY,
 			domain VARCHAR(255)
 		)`,
+		`CREATE TABLE IF NOT EXISTS pub_config (
+			pid INT PRIMARY KEY,
+			lid INT DEFAULT 224,
+			cc VARCHAR(10) DEFAULT 'US',
+			tsize VARCHAR(20) DEFAULT '300x250',
+			serp_template VARCHAR(255) DEFAULT 'SerpTemplate1.html',
+			keyword_template VARCHAR(255) DEFAULT 'KeywordTemplate1.html',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS keyword_impression (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			publisher_id INT,
@@ -128,6 +143,61 @@ func createTables() error {
 	}
 
 	log.Println("Ensured all tables exist")
+	return nil
+}
+
+// seedPublisherConfigs seeds default publisher configurations
+func seedPublisherConfigs() error {
+	// Check if table already has records - skip seeding if not empty
+	var count int
+	err := DB.QueryRow("SELECT COUNT(*) FROM pub_config").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check pub_config count: %w", err)
+	}
+	if count > 0 {
+		log.Printf("Publisher config table has %d records, skipping seed", count)
+		return nil
+	}
+
+	// Table is empty, seed default configs
+	configs := []struct {
+		pid             int
+		lid             int
+		cc              string
+		tsize           string
+		serpTemplate    string
+		keywordTemplate string
+	}{
+		{
+			pid:             100,
+			lid:             224,
+			cc:              "US",
+			tsize:           "300x250",
+			serpTemplate:    "SerpTemplate2.html",    // 2 ads (template decides)
+			keywordTemplate: "KeywordTemplate1.html", // 6 keywords (template decides)
+		},
+		{
+			pid:             200,
+			lid:             224,
+			cc:              "US",
+			tsize:           "300x250",
+			serpTemplate:    "SerpTemplate3.html",    // 5 ads (template decides)
+			keywordTemplate: "KeywordTemplate3.html", // 10 keywords (template decides)
+		},
+	}
+
+	for _, cfg := range configs {
+		_, err := DB.Exec(`
+			INSERT INTO pub_config (pid, lid, cc, tsize, serp_template, keyword_template)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, cfg.pid, cfg.lid, cfg.cc, cfg.tsize, cfg.serpTemplate, cfg.keywordTemplate)
+		if err != nil {
+			return fmt.Errorf("failed to seed config for PID %d: %w", cfg.pid, err)
+		}
+		log.Printf("Seeded publisher config for PID %d", cfg.pid)
+	}
+
+	log.Println("Publisher config seeding complete")
 	return nil
 }
 

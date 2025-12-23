@@ -38,16 +38,13 @@ func NewKeywordService(apiBaseURL string) *KeywordService {
 func (s *KeywordService) FetchKeywords(params models.RenderParams) ([]string, []int64, error) {
 	vals := url.Values{}
 
-	if params.Actno != "" {
-		vals.Set("actno", params.Actno)
-	} else {
-		vals.Set("actno", "5")
-	}
+	// Set maxno first, then actno = maxno (they should be the same)
+	maxno := "5" // default
 	if params.Maxno != "" {
-		vals.Set("maxno", params.Maxno)
-	} else {
-		vals.Set("maxno", "5")
+		maxno = params.Maxno
 	}
+	vals.Set("maxno", maxno)
+	vals.Set("actno", maxno) // actno should equal maxno
 	if params.CC != "" {
 		vals.Set("cc", params.CC)
 	} else {
@@ -78,6 +75,7 @@ func (s *KeywordService) FetchKeywords(params models.RenderParams) ([]string, []
 	vals.Set("json", "1")
 
 	apiURL := s.apiBaseURL + "?" + vals.Encode()
+	fmt.Println("apiURL", apiURL)
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.Header.Set("User-Agent", "KeywordService/1.0")
 

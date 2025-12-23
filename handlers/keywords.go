@@ -1,17 +1,7 @@
 // handlers/keywords.go
 package handlers
 
-import (
-	"html/template"
-	"net/http"
-	"strconv"
-	"strings"
-
-	"adserving/models"
-	"adserving/services"
-	"adserving/templates"
-)
-
+/*
 type KeywordItem struct {
 	ID   int64
 	Name string
@@ -204,4 +194,4 @@ func (h *KeywordsPageHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-}
+}*/

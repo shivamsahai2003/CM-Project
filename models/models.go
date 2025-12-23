@@ -69,7 +69,6 @@ type ClickStatKey struct {
 // RenderParams holds parameters for the render.js handler
 type RenderParams struct {
 	Slot   string
-	Actno  string
 	Maxno  string
 	CC     string
 	LID    string
@@ -79,7 +78,6 @@ type RenderParams struct {
 	TSize  string
 	KwRf   string
 	PID    string
-	Pub    string // Publisher key (e.g., "blue", "red")
 }
 
 // SerpParams holds parameters for the SERP handler
@@ -107,20 +105,40 @@ type AdViewModel struct {
 	RenderLinks bool
 }
 
-// SerpPageData holds data for the SERP page template
-type SerpPageData struct {
-	Title  string
-	Slot   string
-	CC     string
-	D      string
-	RURL   string
-	PTitle string
-	LID    string
-	TSize  string
-	KwRf   string
-	KID    string
-	PID    string
-	IsBot  bool
-	HasAds bool
-	Ads    []AdViewModel
+//SerpPageData holds data for the SERP page template
+// type SerpPageData struct {
+// 	Title  string
+// 	Slot   string
+// 	CC     string
+// 	D      string
+// 	RURL   string
+// 	PTitle string
+// 	LID    string
+// 	TSize  string
+// 	KwRf   string
+// 	KID    string
+// 	PID    string
+// 	IsBot  bool
+// 	HasAds bool
+// 	//Ads    []AdViewModel
+// 	//Serp template required field
+// 	AdTitle1 template.HTML
+// 	AdDesc1  template.HTML
+// 	AdHref1  string
+// 	AdTitle2 template.HTML
+// 	AdDesc2  template.HTML
+// 	AdHref2  string
+// 	AdTitle3 template.HTML
+// 	AdDesc3  template.HTML
+// 	AdHref3  string
+// }
+
+// keyword struct for placeholder
+type Keyword struct {
+	Title string
+	Href  string
+}
+type KeywordSlots struct {
+	PID      int
+	Keywords []Keyword
 }

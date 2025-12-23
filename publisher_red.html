@@ -1,16 +1,17 @@
-<!-- publisher_red.html - Red Publisher (host: red.localhost → pid=200, shows 5 ads) -->
-<!-- Access via: http://red.localhost:8080/publisher_red.html -->
+<!-- publisher_red.html - Publisher PID=200 -->
+<!-- Access via: http://localhost:8080/publisher_red.html -->
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Red Publisher - Breaking News</title>
-    <script src="http://localhost:8080/firstcall.js?pub=red"></script>
+    <title>Publisher 200 - Breaking News</title>
+    <script src="http://localhost:8000/firstcall.js" data-pid="200"></script>
 </head>
 <body style="background:#4a1515; color:#f5e6e8; font:16px Arial; padding:20px;">
-    <h1>Red Publisher</h1>
-    <p>Shows <strong>5 ads</strong> on SERP</p>
+    <h1>Publisher 200</h1>
+    <p>Config loaded from database by PID</p>
     <hr>
+    <div id="kw-slot-200-1"></div>
     <div id="kw-slot-123"></div>
     <div id="kw-slot-456"></div>
     <div id="kw-slot-789"></div>
