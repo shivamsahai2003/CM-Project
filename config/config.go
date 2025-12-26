@@ -2,14 +2,12 @@ package config
 
 import "os"
 
-// Config holds all application configuration
 type Config struct {
 	DBDsn      string
 	ServerAddr string
 	APIBaseURL string
 }
 
-// Load returns the application configuration from environment variables
 func Load() *Config {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
@@ -26,9 +24,5 @@ func Load() *Config {
 		apiBase = "http://g-usw1b-kwd-api-realapi.srv.media.net/kbb/keyword_api.php"
 	}
 
-	return &Config{
-		DBDsn:      dsn,
-		ServerAddr: addr,
-		APIBaseURL: apiBase,
-	}
+	return &Config{DBDsn: dsn, ServerAddr: addr, APIBaseURL: apiBase}
 }

@@ -3,10 +3,10 @@ package services
 import (
 	"compress/gzip"
 	"encoding/xml"
-	"fmt"
 	"html"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -16,46 +16,68 @@ import (
 
 const yahooXMLURL = "https://contextual-stage.media.net/test/mock/provider/yahoo.xml"
 
-// YahooService handles Yahoo XML ad fetching
+var DefaultAds = []models.YahooAd{
+	{
+		TitleHTML: template.HTML("Shop Top Deals Today"),
+		DescHTML:  template.HTML("Find amazing discounts on popular products. Limited time offers available now."),
+		Link:      "https://example.com/deals",
+		Host:      "example.com",
+	},
+	{
+		TitleHTML: template.HTML("Compare Best Prices"),
+		DescHTML:  template.HTML("Get the best prices from trusted retailers. Save money on your next purchase."),
+		Link:      "https://example.com/compare",
+		Host:      "example.com",
+	},
+	{
+		TitleHTML: template.HTML("Exclusive Online Offers"),
+		DescHTML:  template.HTML("Special offers only available online. Don't miss out on these savings."),
+		Link:      "https://example.com/offers",
+		Host:      "example.com",
+	},
+}
+
 type YahooService struct {
 	client *http.Client
 }
 
-// NewYahooService creates a new Yahoo service
 func NewYahooService() *YahooService {
-	return &YahooService{
-		client: &http.Client{Timeout: 8 * time.Second},
-	}
+	return &YahooService{client: &http.Client{Timeout: 8 * time.Second}}
 }
 
-// FetchAds fetches and parses Yahoo XML ads
 func (s *YahooService) FetchAds() ([]models.YahooAd, error) {
-	req, _ := http.NewRequest("GET", yahooXMLURL, nil)
-	req.Header.Set("User-Agent", "KeywordService/1.0")
+	req, err := http.NewRequest("GET", yahooXMLURL, nil)
+	if err != nil {
+		log.Printf("ads API request error: %v, using defaults", err)
+		return DefaultAds, nil
+	}
+	req.Header.Set("User-Agent", "AdService/1.0")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch yahoo xml: %w", err)
+		log.Printf("ads API fetch error: %v, using defaults", err)
+		return DefaultAds, nil
 	}
 	defer resp.Body.Close()
 
 	var reader io.ReadCloser = resp.Body
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Encoding")), "gzip") {
-		gzr, gzErr := gzip.NewReader(resp.Body)
-		if gzErr == nil {
-			defer gzr.Close()
-			reader = gzr
+		if gr, err := gzip.NewReader(resp.Body); err == nil {
+			defer gr.Close()
+			reader = gr
 		}
 	}
 
 	raw, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("read yahoo xml: %w", err)
+		log.Printf("ads API read error: %v, using defaults", err)
+		return DefaultAds, nil
 	}
 
 	var doc models.YahooResults
 	if err := xml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("xml unmarshal: %w", err)
+		log.Printf("ads API parse error: %v, using defaults", err)
+		return DefaultAds, nil
 	}
 
 	var ads []models.YahooAd
@@ -67,14 +89,17 @@ func (s *YahooService) FetchAds() ([]models.YahooAd, error) {
 		if link == "" {
 			continue
 		}
-		title := template.HTML(html.UnescapeString(strings.TrimSpace(li.Title)))
-		desc := template.HTML(html.UnescapeString(strings.TrimSpace(li.Description)))
 		ads = append(ads, models.YahooAd{
-			TitleHTML: title,
-			DescHTML:  desc,
+			TitleHTML: template.HTML(html.UnescapeString(strings.TrimSpace(li.Title))),
+			DescHTML:  template.HTML(html.UnescapeString(strings.TrimSpace(li.Description))),
 			Link:      link,
 			Host:      strings.TrimSpace(li.SiteHost),
 		})
+	}
+
+	if len(ads) == 0 {
+		log.Printf("ads API returned no ads, using defaults")
+		return DefaultAds, nil
 	}
 
 	return ads, nil

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{.Title}}</title>
+<style>
+body { font: 15px/1.5 Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+h1 { color: #333; }
+.ad-item { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 10px 0; }
+.ad-item a { color: #1a0dab; text-decoration: none; font-weight: 600; }
+.ad-item a:hover { text-decoration: underline; }
+.ad-desc { color: #545454; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>{{.Title}}</h1>
+<div class="ad-item">
+	<a href="{{.AdHref1}}" target="_blank">{{.AdTitle1}}</a>
+	<div class="ad-desc">{{.AdDesc1}}</div>
+</div>
+<div class="ad-item">
+	<a href="{{.AdHref2}}" target="_blank">{{.AdTitle2}}</a>
+	<div class="ad-desc">{{.AdDesc2}}</div>
+</div>
+<div class="ad-item">
+	<a href="{{.AdHref3}}" target="_blank">{{.AdTitle3}}</a>
+	<div class="ad-desc">{{.AdDesc3}}</div>
+</div>
+</body>
+</html>
+

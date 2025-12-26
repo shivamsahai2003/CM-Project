@@ -7,9 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"adserving/config"
 	"adserving/db"
@@ -18,162 +16,127 @@ import (
 	"adserving/utils"
 )
 
-// SerpHandler handles SERP page requests
-func CountAdPlaceHolders(templateStr string) int {
-	re := regexp.MustCompile(`\{\{\.ad_desc_\d+\}\}`)
-	matches := re.FindAllString(templateStr, -1)
-	return len(matches)
-}
+const dummySerpTemplate = "storage/html/SerpTemplateDummy.html"
 
 type SerpHandler struct {
 	yahooService *services.YahooService
 }
 
-// NewSerpHandler creates a new SERP handler
 func NewSerpHandler(yahooService *services.YahooService) *SerpHandler {
-	return &SerpHandler{
-		yahooService: yahooService,
-	}
+	return &SerpHandler{yahooService: yahooService}
 }
 
-// Handle processes SERP page requests
 func (h *SerpHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	ua := r.UserAgent()
-	isBot := utils.IsBotUA(ua)
+	userAgent := r.UserAgent()
+	isBot := utils.IsBotUA(userAgent)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	q := r.URL.Query()
 	params := models.SerpParams{
-		Q:      r.URL.Query().Get("q"),
-		Slot:   r.URL.Query().Get("slot"),
-		CC:     r.URL.Query().Get("cc"),
-		D:      r.URL.Query().Get("d"),
-		RURL:   r.URL.Query().Get("rurl"),
-		PTitle: r.URL.Query().Get("ptitle"),
-		LID:    r.URL.Query().Get("lid"),
-		TSize:  r.URL.Query().Get("tsize"),
-		KwRf:   r.URL.Query().Get("kwrf"),
-		KID:    r.URL.Query().Get("kid"),
-		PID:    r.URL.Query().Get("pid"),
-		MaxAds: r.URL.Query().Get("maxads"),
-	}
-	log.Printf("result of params: %+v", params)
-	// Log keyword click
-	clientID := utils.GetClientIP(r) // todo recheck
-	pubID := utils.AtoiOrZero(params.LID)
-	kidInt := utils.AtoiOrZero(params.KID)
-
-	var slotSQL any = nil
-	if s := strings.TrimSpace(params.Slot); s != "" {
-		if sInt, err := strconv.Atoi(s); err == nil {
-			slotSQL = sInt
-		}
+		Query:       q.Get("q"),
+		Slot:        q.Get("slot"),
+		CountryCode: q.Get("cc"),
+		KeywordID:   q.Get("kid"),
+		PublisherID: q.Get("pid"),
 	}
 
-	if pubID > 0 {
-		_, err := db.GetDB().Exec(
-			"INSERT INTO keyword_click (slot_id, kid, `time`, `user id`, keyword_title, publisher_id, user_agent) VALUES (?, ?, NOW(), ?, ?, ?, ?)",
-			slotSQL, kidInt, clientID, params.Q, pubID, ua,
+	clientIP := utils.GetClientIP(r)
+	publisherID := utils.AtoiOrZero(params.PublisherID)
+	keywordID := utils.AtoiOrZero(params.KeywordID)
+
+	rule := config.GetRuleByPublisherIDAndUserAgent(publisherID, userAgent)
+
+	if rule.Action.Block {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "<h2>403 – Traffic blocked</h2>")
+		return
+	}
+
+	// Record keyword click (ignore DB errors)
+	if publisherID > 0 && db.GetDB() != nil {
+		db.GetDB().Exec(
+			`INSERT INTO keyword_click (publisher_id, keyword_id, keyword_title, slot, client_ip, user_agent, country_code) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			publisherID, keywordID, params.Query, params.Slot, clientIP, userAgent, params.CountryCode,
 		)
-		if err != nil {
-			log.Printf("insert keyword_click error: %v", err)
-		}
 	}
 
-	ads, err := h.yahooService.FetchAds()
-	if err != nil {
-		log.Printf("Yahoo XML fetch/parse error: %v", err)
-	}
-
-	// Get publisher config by PID
-	pid := utils.AtoiOrZero(params.PID)
-	pubConfig := config.GetPublisherConfigByPID(pid)
-
-	// Get max ads from SERP template (template decides how many ads to show)
-	serpTemplatePath := "storage/html/" + pubConfig.SerpTemplate
+	// Get template path, fallback to dummy
+	serpTemplatePath := "storage/html/" + rule.Action.SerpTemplateID
 	maxAds := utils.CountAdSlots(serpTemplatePath)
 	if maxAds == 0 {
-		maxAds = 3 // fallback
+		serpTemplatePath = dummySerpTemplate
+		maxAds = 3
 	}
 
-	// Override with maxads param if provided (from render.js)
-	if params.MaxAds != "" {
-		if n, err := strconv.Atoi(params.MaxAds); err == nil && n > 0 && n < maxAds {
-			maxAds = n
+	var ads []models.YahooAd
+	if !isBot {
+		// FetchAds returns defaults on error
+		ads, _ = h.yahooService.FetchAds()
+
+		if len(ads) > maxAds {
+			ads = ads[:maxAds]
 		}
-	}
-	fmt.Println("ads for serp", ads)
-	log.Printf("SERP: PID=%d, Domain=%s, SerpTemplate=%s, MaxAds=%d", pid, params.D, pubConfig.SerpTemplate, maxAds)
-	if len(ads) > maxAds {
-		ads = ads[:maxAds]
+
+		// Record ad impressions (ignore DB errors)
+		if db.GetDB() != nil {
+			for pos, ad := range ads {
+				db.GetDB().Exec(
+					`INSERT INTO ad_impression (publisher_id, keyword_id, keyword_title, ad_position, ad_title, ad_host, client_ip, user_agent, country_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					publisherID, keywordID, params.Query, pos+1, string(ad.TitleHTML), ad.Host, clientIP, userAgent, params.CountryCode,
+				)
+			}
+		}
 	}
 
 	title := "SERP"
-	if params.Q != "" {
-		title = "Results for: " + params.Q
+	if params.Query != "" {
+		title = "Results for: " + params.Query
 	}
 
-	// Build ad-click URLs; include lid so /ad-click can log publisher_id
 	var adsVM []models.AdViewModel
-	for _, a := range ads {
+	for _, ad := range ads {
 		qs := url.Values{}
-		qs.Set("u", a.Link)
-		if params.Slot != "" {
-			qs.Set("slot", params.Slot)
-		}
-		if params.KID != "" {
-			qs.Set("kid", params.KID)
-		}
-		if params.Q != "" {
-			qs.Set("q", params.Q)
-		}
-		if a.Host != "" {
-			qs.Set("adhost", a.Host)
-		}
-		if params.LID != "" {
-			qs.Set("lid", params.LID)
-		}
-		clickHref := "/ad-click?" + qs.Encode()
+		qs.Set("u", ad.Link)
+		qs.Set("slot", params.Slot)
+		qs.Set("kid", params.KeywordID)
+		qs.Set("q", params.Query)
+		qs.Set("adhost", ad.Host)
+		qs.Set("adtitle", string(ad.TitleHTML))
+		qs.Set("pid", params.PublisherID)
+		qs.Set("cc", params.CountryCode)
+
 		adsVM = append(adsVM, models.AdViewModel{
-			TitleHTML:   a.TitleHTML,
-			DescHTML:    a.DescHTML,
-			Host:        a.Host,
-			ClickHref:   clickHref,
+			TitleHTML:   ad.TitleHTML,
+			DescHTML:    ad.DescHTML,
+			Host:        ad.Host,
+			ClickHref:   "/ad-click?" + qs.Encode(),
 			RenderLinks: !isBot,
 		})
 	}
 
 	dataMap := map[string]interface{}{
 		"Title":  html.EscapeString(title),
-		"Slot":   html.EscapeString(params.Slot),
-		"CC":     html.EscapeString(params.CC),
-		"D":      html.EscapeString(params.D),
-		"RURL":   html.EscapeString(params.RURL),
-		"PTitle": html.EscapeString(params.PTitle),
-		"LID":    html.EscapeString(params.LID),
-		"TSize":  html.EscapeString(params.TSize),
-		"KwRf":   html.EscapeString(params.KwRf),
-		"KID":    html.EscapeString(params.KID),
-		"PID":    html.EscapeString(params.PID),
 		"IsBot":  isBot,
 		"HasAds": len(adsVM) > 0,
-		"Ads":    adsVM, //added this
+		"Ads":    adsVM,
 	}
-	for index, ad := range adsVM {
-		n := strconv.Itoa(index + 1)
-		dataMap["AdTitle"+n] = ad.TitleHTML
-		dataMap["AdDesc"+n] = ad.DescHTML
-		dataMap["AdHref"+n] = ad.ClickHref
+	for i, ad := range adsVM {
+		idx := strconv.Itoa(i + 1)
+		dataMap["AdTitle"+idx] = ad.TitleHTML
+		dataMap["AdDesc"+idx] = ad.DescHTML
+		dataMap["AdHref"+idx] = ad.ClickHref
 	}
-	fmt.Printf("data for template: %v", dataMap)
 
-	// Use template from publisher config
-	templatePath := "storage/html/" + pubConfig.SerpTemplate
-	t, err := template.ParseFiles(templatePath)
+	tmpl, err := template.ParseFiles(serpTemplatePath)
 	if err != nil {
-		log.Fatalf("template parse error: %v", err)
+		log.Printf("template parse error: %v, trying dummy", err)
+		tmpl, err = template.ParseFiles(dummySerpTemplate)
+		if err != nil {
+			fmt.Fprint(w, "<h2>Template error</h2>")
+			return
+		}
 	}
-	// execute template
-	if err := t.Execute(w, dataMap); err != nil {
+	if err := tmpl.Execute(w, dataMap); err != nil {
 		log.Printf("template execute error: %v", err)
 	}
 }

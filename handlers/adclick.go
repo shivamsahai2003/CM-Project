@@ -12,31 +12,22 @@ import (
 	"adserving/utils"
 )
 
-// AdClickHandler handles ad click tracking and redirects
 type AdClickHandler struct {
 	clickService *services.ClickService
 }
 
-// NewAdClickHandler creates a new ad click handler
 func NewAdClickHandler(clickService *services.ClickService) *AdClickHandler {
-	return &AdClickHandler{
-		clickService: clickService,
-	}
+	return &AdClickHandler{clickService: clickService}
 }
 
-// Handle processes ad click requests
 func (h *AdClickHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	ua := r.UserAgent()
-	if utils.IsBotUA(ua) {
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, "<h2>403 – Bot traffic blocked</h2>")
-		return
-	}
+	userAgent := r.UserAgent()
+	isBot := utils.IsBotUA(userAgent)
 
-	qv := r.URL.Query()
-	targetRaw := qv.Get("u")
+	q := r.URL.Query()
+	targetRaw := q.Get("u")
 	if targetRaw == "" {
-		http.Error(w, "missing u (target) parameter", http.StatusBadRequest)
+		http.Error(w, "missing target", http.StatusBadRequest)
 		return
 	}
 
@@ -46,30 +37,32 @@ func (h *AdClickHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slot := qv.Get("slot")
-	kid := utils.AtoiOrZero(qv.Get("kid"))
-	q := qv.Get("q")
-	adHost := qv.Get("adhost")
-	pubID := utils.AtoiOrZero(qv.Get("lid"))
-	clientID := utils.GetClientIP(r)
+	slot := q.Get("slot")
+	keywordID := utils.AtoiOrZero(q.Get("kid"))
+	query := q.Get("q")
+	adHost := q.Get("adhost")
+	adTitle := q.Get("adtitle")
+	countryCode := q.Get("cc")
+	publisherID := utils.AtoiOrZero(q.Get("pid"))
+	clientIP := utils.GetClientIP(r)
 
-	// In-memory counter
-	key := models.ClickStatKey{Slot: slot, KID: strconv.Itoa(kid), Q: q, AdHost: adHost}
-	count := h.clickService.IncrementClick(key)
-	log.Printf("AD-CLICK: ip=%s ua=%q slot=%q kid=%d q=%q adhost=%q target=%q count=%d", clientID, ua, slot, kid, q, adHost, target, count)
+	key := models.ClickStatKey{Slot: slot, KeywordID: strconv.Itoa(keywordID), Query: query, AdHost: adHost}
+	h.clickService.IncrementClick(key)
 
-	// DB log
-	if pubID > 0 {
-		adDetails := fmt.Sprintf(`{"adhost":%q,"target":%q}`, adHost, target)
+	if publisherID > 0 {
 		_, err := db.GetDB().Exec(
-			"INSERT INTO adclick_click (keyword_id, `time`, `user id`, keyword_title, Ad_details, User_agent, publisher_id) VALUES (?, NOW(), ?, ?, ?, ?, ?)",
-			kid, clientID, q, adDetails, ua, pubID,
+			`INSERT INTO ad_click (publisher_id, keyword_id, keyword_title, ad_title, ad_host, ad_target_url, slot, client_ip, user_agent, country_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			publisherID, keywordID, query, adTitle, adHost, target, slot, clientIP, userAgent, countryCode,
 		)
 		if err != nil {
-			log.Printf("insert adclick_click error: %v", err)
+			log.Printf("ad_click insert error: %v", err)
 		}
-	} else {
-		log.Printf("ad click with missing publisher_id (lid)")
+	}
+
+	if isBot {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "Click logged")
+		return
 	}
 
 	http.Redirect(w, r, target, http.StatusFound)
